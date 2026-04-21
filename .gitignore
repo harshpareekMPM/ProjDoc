@@ -1,0 +1,50 @@
+# Flutter
+flutter_app/.dart_tool/
+flutter_app/.flutter-plugins
+flutter_app/.flutter-plugins-dependencies
+flutter_app/build/
+flutter_app/.packages
+flutter_app/.pub-cache/
+flutter_app/.pub/
+flutter_app/ios/Pods/
+flutter_app/android/.gradle/
+flutter_app/android/local.properties
+flutter_app/android/key.properties
+*.keystore
+*.jks
+
+# Node.js / Firebase Functions
+functions/node_modules/
+backend/node_modules/
+node_modules/
+npm-debug.log*
+
+# Python
+backend/__pycache__/
+backend/*.pyc
+backend/.venv/
+**/__pycache__/
+**/*.pyc
+.venv/
+venv/
+
+# Firebase
+.firebase/
+.firebaserc
+
+# Environment / secrets
+.env
+.env.*
+*.env
+**/google-services.json
+**/GoogleService-Info.plist
+**/service_account*.json
+*secret*
+*credentials*
+
+# Claude Code
+.claude/
+
+# OS
+.DS_Store
+Thumbs.db

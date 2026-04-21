@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /jobs/{jobId} {
+      // Users can only read their own jobs
+      allow get:  if request.auth != null
+                  && resource.data.uid == request.auth.uid;
+
+      // List queries: must filter by own uid (history screen does .where('uid', isEqualTo: uid))
+      allow list: if request.auth != null
+                  && resource.data.uid == request.auth.uid;
+
+      // Create: must be authenticated and uid must match signed-in user
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.status == 'pending';
+
+      // Users may only stamp their own downloaded_at; all other updates are server-only
+      allow update: if request.auth != null
+                    && resource.data.uid == request.auth.uid
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                         .hasOnly(['downloaded_at']);
+      allow delete: if false;
+    }
+
+    match /users/{uid} {
+      // Clients may only READ their own profile (credits, etc.)
+      // Writes (credit grants) are exclusively via Admin SDK in Cloud Functions
+      allow read: if request.auth != null && request.auth.uid == uid;
+      allow write: if false;
+    }
+
+    match /payments/{paymentId} {
+      // Payment records are server-only; clients have no access
+      allow read, write: if false;
+    }
+  }
+}
