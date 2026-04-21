@@ -50,6 +50,81 @@ def _add_chapter_separator(doc):
     pPr.append(pBdr)
 
 
+def _add_header_footer(section, job: dict, heading_rgb, accent_hex: str):
+    from docx.oxml.ns   import qn
+    from docx.oxml      import OxmlElement
+    from docx.shared    import Pt, RGBColor
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+
+    section.different_first_page_header_footer = True
+
+    # ── Header ────────────────────────────────────────────────────
+    hdr  = section.header
+    hdr.is_linked_to_previous = False
+    para = hdr.paragraphs[0]
+    para.clear()
+
+    pPr  = para._p.get_or_add_pPr()
+    tabs = OxmlElement('w:tabs')
+    tab  = OxmlElement('w:tab')
+    tab.set(qn('w:val'), 'right')
+    tab.set(qn('w:pos'), '9072')
+    tabs.append(tab)
+    pPr.append(tabs)
+
+    pBdr   = OxmlElement('w:pBdr')
+    bottom = OxmlElement('w:bottom')
+    bottom.set(qn('w:val'),   'single')
+    bottom.set(qn('w:sz'),    '6')
+    bottom.set(qn('w:space'), '1')
+    bottom.set(qn('w:color'), accent_hex)
+    pBdr.append(bottom)
+    pPr.append(pBdr)
+
+    r_left = para.add_run(job.get('title', '')[:50])
+    r_left.font.name      = 'Calibri'
+    r_left.font.size      = Pt(9)
+    r_left.font.bold      = True
+    r_left.font.color.rgb = heading_rgb
+
+    para.add_run('\t')
+
+    r_right = para.add_run(job.get('client', '')[:40])
+    r_right.font.name      = 'Calibri'
+    r_right.font.size      = Pt(9)
+    r_right.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+
+    # ── Footer ────────────────────────────────────────────────────
+    ftr  = section.footer
+    ftr.is_linked_to_previous = False
+    para = ftr.paragraphs[0]
+    para.clear()
+    para.alignment = WD_ALIGN_PARAGRAPH.CENTER
+
+    def _field_run(instr: str):
+        r   = para.add_run()
+        beg = OxmlElement('w:fldChar')
+        beg.set(qn('w:fldCharType'), 'begin')
+        r._r.append(beg)
+        txt = OxmlElement('w:instrText')
+        txt.set(qn('xml:space'), 'preserve')
+        txt.text = instr
+        r._r.append(txt)
+        end = OxmlElement('w:fldChar')
+        end.set(qn('w:fldCharType'), 'end')
+        r._r.append(end)
+        r.font.name      = 'Calibri'
+        r.font.size      = Pt(9)
+        r.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+
+    _field_run(' PAGE ')
+    sep = para.add_run(' of ')
+    sep.font.name      = 'Calibri'
+    sep.font.size      = Pt(9)
+    sep.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+    _field_run(' NUMPAGES ')
+
+
 CHAPTER_NAMES = [
     "abstract", "literature", "requirements", "system_design",
     "implementation", "database", "testing", "results",
@@ -1039,12 +1114,13 @@ def assembler_node(state: ReportState) -> ReportState:
 
     doc = Document()
 
-    # ── Page margins ───────────────────────────────────────────────
+    # ── Page margins & header/footer ──────────────────────────────
     for section in doc.sections:
         section.top_margin    = Cm(2.54)
         section.bottom_margin = Cm(2.54)
         section.left_margin   = Cm(3.0)
         section.right_margin  = Cm(2.0)
+        _add_header_footer(section, job, heading_rgb, accent_hex)
 
     # ── Helpers ────────────────────────────────────────────────────
     def _shade_para(para, fill_hex):
@@ -1109,10 +1185,19 @@ def assembler_node(state: ReportState) -> ReportState:
     h2_style = doc.styles["Heading 2"]
     h2_style.font.name  = "Calibri"
     h2_style.font.bold  = True
-    h2_style.font.size  = Pt(13)
+    h2_style.font.size  = Pt(14)
     h2_style.font.color.rgb = heading_rgb
-    h2_style.paragraph_format.space_before = Pt(14)
+    h2_style.paragraph_format.space_before = Pt(18)
     h2_style.paragraph_format.space_after  = Pt(4)
+
+    h3_style = doc.styles["Heading 3"]
+    h3_style.font.name   = "Calibri"
+    h3_style.font.bold   = False
+    h3_style.font.italic = True
+    h3_style.font.size   = Pt(12)
+    h3_style.font.color.rgb = h2_rgb
+    h3_style.paragraph_format.space_before = Pt(10)
+    h3_style.paragraph_format.space_after  = Pt(2)
 
     # ── Cover page ─────────────────────────────────────────────────
     # Top accent bar
@@ -1132,7 +1217,20 @@ def assembler_node(state: ReportState) -> ReportState:
     t_run = title_p.add_run(job["title"])
     _set_font(t_run, "Calibri", 26, bold=True, color=heading_rgb)
 
-    doc.add_paragraph("")
+    # Divider after title
+    div = doc.add_paragraph()
+    div.paragraph_format.space_before = Pt(6)
+    div.paragraph_format.space_after  = Pt(6)
+    _div_pPr = div._p.get_or_add_pPr()
+    _div_bdr = OxmlElement('w:pBdr')
+    _div_bot = OxmlElement('w:bottom')
+    _div_bot.set(qn('w:val'),   'single')
+    _div_bot.set(qn('w:sz'),    '12')
+    _div_bot.set(qn('w:space'), '1')
+    _div_bot.set(qn('w:color'), accent_hex)
+    _div_bdr.append(_div_bot)
+    _div_pPr.append(_div_bdr)
+
     sub = doc.add_paragraph()
     sub.alignment = WD_ALIGN_PARAGRAPH.CENTER
     sub_run = sub.add_run(
@@ -1143,20 +1241,39 @@ def assembler_node(state: ReportState) -> ReportState:
 
     doc.add_paragraph("")
 
-    # Info card
-    info_p = doc.add_paragraph()
-    info_p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    _shade_para(info_p, "F3F4F6")
-    lines = (
-        f"Submitted by\n"
-        f"{job['student_name']}  ·  Batch {job['batch_year']}\n\n"
-        f"Under the guidance of  Project Guide\n\n"
-        f"{job['client']}"
-    )
-    info_run = info_p.add_run(lines)
-    _set_font(info_run, "Calibri", 12)
-    info_p.paragraph_format.space_before = Pt(6)
-    info_p.paragraph_format.space_after  = Pt(6)
+    # Info card — 2-column borderless table
+    info_rows = [
+        ("Submitted by",    job.get("student_name", "")),
+        ("Batch",           str(job.get("batch_year", ""))),
+        ("Institution",     job.get("client", "")),
+        ("Branch / Domain", job.get("domain", "CSE / IT")),
+    ]
+    info_tbl = doc.add_table(rows=len(info_rows), cols=2)
+    info_tbl.style = "Table Grid"
+    _itblPr  = info_tbl._tbl.tblPr
+    _itblBdr = OxmlElement('w:tblBorders')
+    for _side in ('top', 'left', 'bottom', 'right', 'insideH', 'insideV'):
+        _b = OxmlElement(f'w:{_side}')
+        _b.set(qn('w:val'), 'none')
+        _itblBdr.append(_b)
+    _itblPr.append(_itblBdr)
+    _itblJc = OxmlElement('w:jc')
+    _itblJc.set(qn('w:val'), 'center')
+    _itblPr.append(_itblJc)
+    for r_idx, (label, value) in enumerate(info_rows):
+        lbl_cell = info_tbl.rows[r_idx].cells[0]
+        val_cell = info_tbl.rows[r_idx].cells[1]
+        lbl_cell.text = ""
+        val_cell.text = ""
+        _shade_para(lbl_cell.paragraphs[0], "F3F4F6")
+        _shade_para(val_cell.paragraphs[0], "F3F4F6")
+        lbl_run = lbl_cell.paragraphs[0].add_run(label)
+        _set_font(lbl_run, "Calibri", 11, bold=True, color=heading_rgb)
+        val_run = val_cell.paragraphs[0].add_run(value)
+        _set_font(val_run, "Calibri", 11)
+        for cell in (lbl_cell, val_cell):
+            cell.paragraphs[0].paragraph_format.space_before = Pt(4)
+            cell.paragraphs[0].paragraph_format.space_after  = Pt(4)
 
     doc.add_paragraph("")
     # Tech stack chips line
@@ -1168,9 +1285,22 @@ def assembler_node(state: ReportState) -> ReportState:
             r = chips_p.add_run(f"  {chip}  ")
             _set_font(r, "Calibri", 9, color=heading_rgb)
 
+    # Rule above bottom bar
+    doc.add_paragraph("")
+    rule_p = doc.add_paragraph()
+    rule_p.paragraph_format.space_before = Pt(4)
+    rule_p.paragraph_format.space_after  = Pt(2)
+    _rule_pPr = rule_p._p.get_or_add_pPr()
+    _rule_bdr = OxmlElement('w:pBdr')
+    _rule_bot = OxmlElement('w:bottom')
+    _rule_bot.set(qn('w:val'),   'single')
+    _rule_bot.set(qn('w:sz'),    '6')
+    _rule_bot.set(qn('w:space'), '1')
+    _rule_bot.set(qn('w:color'), accent_hex)
+    _rule_bdr.append(_rule_bot)
+    _rule_pPr.append(_rule_bdr)
+
     # Bottom bar
-    doc.add_paragraph("")
-    doc.add_paragraph("")
     bot = doc.add_paragraph()
     _shade_para(bot, doc_color_hex)
     bot_run = bot.add_run(f"  {job.get('domain','CSE / IT')}  ·  {job['batch_year']}  ·  Generated by ProjectDocs AI")
@@ -1229,16 +1359,30 @@ def assembler_node(state: ReportState) -> ReportState:
                     max_cols = max(len(r) for r in rows)
                     rows = [r + [''] * (max_cols - len(r)) for r in rows]
                     tbl = doc.add_table(rows=len(rows), cols=max_cols)
-                    tbl.style = 'Table Grid'
+                    tbl.style  = 'Table Grid'
+                    tbl.autofit = False
+                    _tblPr = tbl._tbl.tblPr
+                    _tblW  = OxmlElement('w:tblW')
+                    _tblW.set(qn('w:w'),    '5000')
+                    _tblW.set(qn('w:type'), 'pct')
+                    _tblPr.append(_tblW)
+                    _tblCM = OxmlElement('w:tblCellMar')
+                    for _side, _val in (('top','60'),('bottom','60'),('left','80'),('right','80')):
+                        _m = OxmlElement(f'w:{_side}')
+                        _m.set(qn('w:w'),    _val)
+                        _m.set(qn('w:type'), 'dxa')
+                        _tblCM.append(_m)
+                    _tblPr.append(_tblCM)
                     for r_idx, row_data in enumerate(rows):
                         for c_idx, cell_text in enumerate(row_data):
                             cell = tbl.rows[r_idx].cells[c_idx]
                             cell.text = ""
                             run = cell.paragraphs[0].add_run(cell_text)
                             if r_idx == 0:
-                                _set_font(run, "Calibri", 10, bold=True,
+                                _set_font(run, "Calibri", 11, bold=True,
                                           color=RGBColor(0xFF, 0xFF, 0xFF))
                                 _shade_para(cell.paragraphs[0], doc_color_hex)
+                                cell.paragraphs[0].alignment = WD_ALIGN_PARAGRAPH.CENTER
                             else:
                                 _set_font(run, "Calibri", 10)
                                 if r_idx % 2 == 0:
@@ -1250,10 +1394,16 @@ def assembler_node(state: ReportState) -> ReportState:
             if (len(stripped) < 80
                     and not stripped.endswith(".")
                     and stripped[0].isdigit()):
-                h2 = doc.add_heading(stripped, 2)
-                _left_border(h2, doc_color_hex)
-                for run in h2.runs:
-                    _set_font(run, "Calibri", 13, bold=True, color=h2_rgb)
+                if stripped.count('.') >= 2:
+                    h3 = doc.add_heading(stripped, 3)
+                    for run in h3.runs:
+                        _set_font(run, "Calibri", 12, bold=False, color=h2_rgb)
+                        run.font.italic = True
+                else:
+                    h2 = doc.add_heading(stripped, 2)
+                    _left_border(h2, doc_color_hex)
+                    for run in h2.runs:
+                        _set_font(run, "Calibri", 14, bold=True, color=h2_rgb)
             else:
                 add_body(stripped)
 

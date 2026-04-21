@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:http/http.dart' as http;
+import 'admin_login_screen.dart';
 
 class AdminScreen extends StatefulWidget {
   const AdminScreen({super.key});
@@ -142,7 +143,10 @@ class _AdminScreenState extends State<AdminScreen> {
             onPressed: () async {
               await FirebaseAuth.instance.signOut();
               if (!mounted) return;
-              Navigator.of(context).pop();
+              Navigator.of(context).pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const AdminLoginScreen()),
+                (route) => false,
+              );
             },
             tooltip: 'Sign out',
           ),

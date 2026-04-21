@@ -7,15 +7,18 @@ import 'firebase_options.dart';
 import 'screens/new_report_screen.dart';
 import 'screens/history_screen.dart';
 import 'screens/auth_screen.dart';
-import 'screens/admin_login_screen.dart';
 
 Future<void> _firebaseMessagingBackgroundHandler(RemoteMessage message) async {}
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  try {
+    await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
+  } catch (_) {}
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
-  await FirebaseMessaging.instance.requestPermission();
+  try {
+    await FirebaseMessaging.instance.requestPermission();
+  } catch (_) {}
   runApp(const ProjectDocsApp());
 }
 
@@ -65,9 +68,6 @@ class ProjectDocsApp extends StatelessWidget {
         ),
       ),
       home: const _RootGate(),
-      routes: {
-        '/admin': (_) => const AdminLoginScreen(),
-      },
     );
   }
 }

@@ -1,0 +1,78 @@
+workflows:
+  user-app-release:
+    name: User App APK
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      android_signing:
+        - keystore_reference  # replace with your Codemagic keystore name
+    scripts:
+      - name: Add Android platform
+        working_directory: flutter_app
+        script: |
+          if [ ! -d "android" ]; then
+            flutter create --platforms android .
+          fi
+
+      - name: Set up google-services.json
+        working_directory: flutter_app/android/app
+        script: |
+          echo $GOOGLE_SERVICES_JSON | base64 --decode > google-services.json
+
+      - name: Get Flutter packages
+        working_directory: flutter_app
+        script: flutter pub get
+
+      - name: Build User APK
+        working_directory: flutter_app
+        script: flutter build apk --release --target lib/main.dart
+
+    artifacts:
+      - flutter_app/build/app/outputs/flutter-apk/app-release.apk
+
+    publishing:
+      email:
+        recipients:
+          - pareekharsh15@gmail.com
+        notify:
+          success: true
+          failure: true
+
+  admin-app-release:
+    name: Admin App APK
+    max_build_duration: 60
+    environment:
+      flutter: stable
+      android_signing:
+        - keystore_reference  # replace with your Codemagic keystore name
+    scripts:
+      - name: Add Android platform
+        working_directory: flutter_app
+        script: |
+          if [ ! -d "android" ]; then
+            flutter create --platforms android .
+          fi
+
+      - name: Set up google-services.json
+        working_directory: flutter_app/android/app
+        script: |
+          echo $GOOGLE_SERVICES_JSON | base64 --decode > google-services.json
+
+      - name: Get Flutter packages
+        working_directory: flutter_app
+        script: flutter pub get
+
+      - name: Build Admin APK
+        working_directory: flutter_app
+        script: flutter build apk --release --target lib/main_admin.dart
+
+    artifacts:
+      - flutter_app/build/app/outputs/flutter-apk/app-release.apk
+
+    publishing:
+      email:
+        recipients:
+          - pareekharsh15@gmail.com
+        notify:
+          success: true
+          failure: true

@@ -19,7 +19,11 @@ class _AuthScreenState extends State<AuthScreen> {
       if (kIsWeb) {
         await FirebaseAuth.instance.signInWithPopup(GoogleAuthProvider());
       } else {
-        final googleUser = await GoogleSignIn().signIn();
+        final googleSignIn = GoogleSignIn();
+        final googleUser = await googleSignIn.signIn().timeout(
+          const Duration(seconds: 30),
+          onTimeout: () => throw Exception('Sign-in timed out. Please try again.'),
+        );
         if (googleUser == null) return;
         final googleAuth = await googleUser.authentication;
         final credential = GoogleAuthProvider.credential(

@@ -372,8 +372,9 @@ class _NewReportScreenState extends State<NewReportScreen> {
                 prefixIcon: Icon(Icons.school_outlined),
               ),
               borderRadius: BorderRadius.circular(12),
+              isExpanded: true,
               items: _branches
-                  .map((d) => DropdownMenuItem(value: d, child: Text(d)))
+                  .map((d) => DropdownMenuItem(value: d, child: Text(d, overflow: TextOverflow.ellipsis)))
                   .toList(),
               onChanged: (v) => setState(() {
                 _domain        = v!;
@@ -713,7 +714,7 @@ class _PayButton extends StatelessWidget {
                 ],
               ),
               const SizedBox(height: 10),
-              const Text('Amount: ₹999',
+              const Text('Amount: ₹799',
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF333344))),
               const SizedBox(height: 10),
               Text(
