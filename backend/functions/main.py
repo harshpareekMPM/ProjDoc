@@ -126,7 +126,9 @@ def generate_report(event: firestore_fn.Event) -> None:
                 "oidc_token": {
                     "service_account_email": f"{_GCP_PROJECT}@appspot.gserviceaccount.com"
                 },
-            }
+            },
+            # Never retry — idempotency guard in the worker handles true retries
+            "retry_config": {"max_attempts": 1},
         }
         client.create_task(request={"parent": parent, "task": task})
     except Exception as e:
@@ -170,10 +172,12 @@ def process_report_task(req: https_fn.Request) -> https_fn.Response:
     job = doc.to_dict()
     job["job_id"] = jid
 
-    # Idempotency guard — Cloud Tasks may retry; skip jobs already finished
-    if job.get("status") in ("done", "expired"):
-        print(f"[WORKER] Job {jid} already completed (status={job.get('status')}), skipping retry")
-        return https_fn.Response("Already processed", status=200)
+    # Idempotency guard — Cloud Tasks may retry; never re-run a terminal job
+    # Returning 200 on "failed" tells Cloud Tasks "delivered OK" so it stops retrying
+    terminal = ("done", "expired", "failed")
+    if job.get("status") in terminal:
+        print(f"[WORKER] Job {jid} is terminal (status={job.get('status')}), skipping — no tokens burned")
+        return https_fn.Response("Already terminal", status=200)
 
     db.collection("jobs").document(jid).update({"status": "processing"})
     try:
