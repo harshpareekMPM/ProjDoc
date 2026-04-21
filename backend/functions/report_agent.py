@@ -17,7 +17,7 @@ client = None
 def _get_client():
     global client
     if client is None:
-        client = anthropic.Anthropic()
+        client = anthropic.Anthropic(max_retries=5)
     return client
 
 
@@ -89,7 +89,7 @@ def _add_header_footer(section, job: dict, heading_rgb, accent_hex: str):
 
     para.add_run('\t')
 
-    r_right = para.add_run(job.get('client', '')[:40])
+    r_right = para.add_run(job.get('student_name', '')[:40])
     r_right.font.name      = 'Calibri'
     r_right.font.size      = Pt(9)
     r_right.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
@@ -200,13 +200,22 @@ Sections to cover:
 - 6.1 Database Management System Used and Justification
 - 6.2 Database Architecture
 - 6.3 Entity Description (describe each entity)
-- 6.4 Table Structures (for each table: column name, datatype, constraints)
-  Format as: Column | Datatype | Constraints | Description
+- 6.4 Table Structures
+  For EVERY table write the schema in this EXACT pipe-delimited format — no exceptions:
+  Column | Datatype | Constraints | Description
+  -------|----------|-------------|------------
+  id     | INT      | PRIMARY KEY | Unique row identifier
+  name   | VARCHAR(100) | NOT NULL | Full name
+  (continue all columns)
+  Do this for at least 4 tables.
 - 6.5 Relationships and Foreign Keys
 - 6.6 Normalisation (explain up to 3NF)
-- 6.7 Sample Data (3 rows for 3 main tables)
-  Format as: Field1 | Field2 | Field3
+- 6.7 Sample Data — for 3 main tables, show 3 sample rows each in pipe-delimited format:
+  column1 | column2 | column3
+  --------|---------|--------
+  value1  | value2  | value3
 - 6.8 Indexes and Performance Considerations
+IMPORTANT: Every table MUST be formatted as pipe-delimited rows as shown above.
 Minimum: 1000 words.
 """,
     "testing": """
@@ -215,9 +224,12 @@ Sections to cover:
 - 7.1 Testing Strategy and Approach
 - 7.2 Types of Testing Performed
 - 7.3 Test Plan
-- 7.4 Unit Test Cases (15 test cases in table format)
-  Format: Test ID | Module | Description | Input | Expected Output | Status
-- 7.5 Integration Test Cases (10 test cases in same format)
+- 7.4 Unit Test Cases (15 test cases) — MUST use this exact pipe-delimited format:
+  Test ID | Module | Description | Input | Expected Output | Status
+  --------|--------|-------------|-------|-----------------|-------
+  TC-01   | Login  | Valid login | email+pass | Dashboard shown | Pass
+  (continue for all 15 rows)
+- 7.5 Integration Test Cases (10 test cases in same pipe-delimited format)
 - 7.6 User Acceptance Testing (5 scenarios)
 - 7.7 Test Results Summary
 - 7.8 Defects Found and Resolved
@@ -907,188 +919,458 @@ def _make_diagram(draw_fn, figsize=(10, 6)) -> io.BytesIO:
     return buf
 
 
+def _parse_modules(job) -> list:
+    """Return a clean list of module/feature names from the job."""
+    text = job.get("modules", "")
+    if not text:
+        return ["User Login", "Dashboard", "Main Feature", "Reports", "Admin Panel"]
+    items = []
+    for sep in ["\n", ",", ";", "|"]:
+        if sep in text:
+            items = [m.strip() for m in text.split(sep) if m.strip()]
+            break
+    if not items:
+        items = [text.strip()]
+    cleaned = []
+    for item in items:
+        item = item.lstrip("0123456789.-) ").strip()
+        if item and len(item) > 1:
+            cleaned.append(item[:38])
+    return cleaned[:10] if cleaned else ["Login", "Dashboard", "Data Management", "Reports"]
+
+
+def _parse_tech(job) -> list:
+    """Return tech stack as a list."""
+    tech = job.get("tech_stack", "")
+    return [t.strip() for t in tech.split(",") if t.strip()][:8]
+
+
+def _extract_entities(job) -> list:
+    """
+    Derive realistic entity names from modules + title.
+    Returns list of (EntityName, [field1, field2, ...]) tuples.
+    """
+    modules  = _parse_modules(job)
+    title    = job.get("title", "Project")
+
+    # Try to extract nouns from module names as entity candidates
+    stop = {"management", "system", "module", "panel", "page", "feature",
+            "handling", "processing", "and", "the", "for", "of"}
+    candidates = []
+    for m in modules:
+        for word in m.replace("-", " ").split():
+            w = word.strip("()").lower()
+            if len(w) > 2 and w not in stop:
+                candidates.append(w.capitalize())
+
+    # Deduplicate preserving order
+    seen = set()
+    entities_raw = []
+    for c in candidates:
+        if c not in seen:
+            seen.add(c)
+            entities_raw.append(c)
+
+    # Always include User
+    if "User" not in seen:
+        entities_raw.insert(0, "User")
+
+    # Pick 4 entities
+    chosen = entities_raw[:4]
+    if len(chosen) < 3:
+        chosen = ["User", "Admin", title.split()[0]][:4]
+
+    # Build field lists per entity
+    generic_pk = lambda e: f"{e.lower()}_id (PK)"
+    result = []
+    for e in chosen:
+        el = e.lower()
+        if el in ("user", "student", "member", "customer", "employee"):
+            fields = [generic_pk(e), "name", "email", "password", "created_at"]
+        elif el in ("admin", "administrator", "manager"):
+            fields = [generic_pk(e), "username", "email", "role", "last_login"]
+        elif el in ("product", "item", "book", "course", "article"):
+            fields = [generic_pk(e), "title", "description", "price", "stock"]
+        elif el in ("order", "booking", "reservation", "transaction", "purchase"):
+            fields = [generic_pk(e), "user_id (FK)", "amount", "status", "date"]
+        elif el in ("category", "department", "branch", "type"):
+            fields = [generic_pk(e), "name", "description"]
+        elif el in ("payment", "fee", "invoice"):
+            fields = [generic_pk(e), "user_id (FK)", "amount", "method", "date"]
+        elif el in ("report", "log", "history", "record"):
+            fields = [generic_pk(e), "user_id (FK)", "content", "created_at"]
+        elif el in ("notification", "alert", "message"):
+            fields = [generic_pk(e), "user_id (FK)", "text", "is_read", "sent_at"]
+        else:
+            fields = [generic_pk(e), "name", "description", "status", "created_at"]
+        result.append((e, fields))
+    return result
+
+
+def _draw_actor(ax, x, y_center, label, color="#6C63FF"):
+    """Draw a UML stick figure actor."""
+    import matplotlib.pyplot as plt
+    ax.add_patch(plt.Circle((x, y_center + 0.5), 0.35, color=color, zorder=3))
+    ax.plot([x, x],            [y_center+0.15, y_center-0.7],  color="#333", lw=1.8)
+    ax.plot([x-0.55, x+0.55],  [y_center-0.15, y_center-0.15], color="#333", lw=1.8)
+    ax.plot([x, x-0.45],       [y_center-0.7,  y_center-1.3],  color="#333", lw=1.8)
+    ax.plot([x, x+0.45],       [y_center-0.7,  y_center-1.3],  color="#333", lw=1.8)
+    ax.text(x, y_center-1.6, label, ha="center", fontsize=8.5, fontweight="bold")
+
+
 def _diagram_architecture(job) -> io.BytesIO:
-    import matplotlib.patches as mp
-    tech = job.get("tech_stack", "React, Flask, MySQL")
-    parts = [t.strip() for t in tech.split(",")][:6]
+    from matplotlib.patches import FancyBboxPatch
+    import matplotlib.pyplot as plt
+
+    tech   = _parse_tech(job)
+    title  = job.get("title", "System")
+
+    # Assign tech to layers heuristically
+    frontend_kw  = {"react","vue","angular","flutter","html","css","javascript","typescript","nextjs","svelte"}
+    backend_kw   = {"flask","django","fastapi","express","spring","node","nodejs","laravel","rails","asp"}
+    db_kw        = {"mysql","postgresql","mongodb","sqlite","firebase","redis","oracle","cassandra","dynamodb"}
+    infra_kw     = {"docker","kubernetes","aws","gcp","azure","nginx","apache","heroku","vercel","firebase"}
+
+    layers = {"Frontend": [], "Backend / API": [], "Database": [], "Infrastructure": []}
+    for t in tech:
+        tl = t.lower()
+        if tl in frontend_kw:   layers["Frontend"].append(t)
+        elif tl in backend_kw:  layers["Backend / API"].append(t)
+        elif tl in db_kw:       layers["Database"].append(t)
+        elif tl in infra_kw:    layers["Infrastructure"].append(t)
+        else:
+            # Assign to least-filled layer
+            least = min(layers, key=lambda k: len(layers[k]))
+            layers[least].append(t)
+
+    # Fill empty layers with generic labels
+    defaults = {"Frontend": ["Web / Mobile UI"], "Backend / API": ["Business Logic"],
+                "Database": ["Data Store"], "Infrastructure": ["Cloud Platform"]}
+    for k in layers:
+        if not layers[k]:
+            layers[k] = defaults[k]
+
+    layer_colors = {
+        "Frontend":        "#DBEAFE",
+        "Backend / API":   "#DCFCE7",
+        "Database":        "#FEF9C3",
+        "Infrastructure":  "#FCE7F3",
+    }
 
     def draw(ax):
-        from matplotlib.patches import FancyBboxPatch
-        colors = ["#DBEAFE", "#DCFCE7", "#FEF9C3"]
-        labels = ["Presentation Layer", "Application / Business Layer", "Data Layer"]
-        sublabels = [
-            parts[0] if len(parts) > 0 else "Frontend",
-            parts[1] if len(parts) > 1 else "Backend",
-            parts[2] if len(parts) > 2 else "Database",
-        ]
-        ys = [7.5, 5.0, 2.5]
-        for label, sub, color, y in zip(labels, sublabels, colors, ys):
-            box = FancyBboxPatch((1, y - 0.8), 8, 1.6,
-                                 boxstyle="round,pad=0.15",
-                                 facecolor=color, edgecolor="#555", lw=1.5)
-            ax.add_patch(box)
-            ax.text(5, y + 0.25, label, ha="center", va="center",
-                    fontsize=11, fontweight="bold", color="#111")
-            ax.text(5, y - 0.25, sub,   ha="center", va="center",
-                    fontsize=9,  color="#444")
-        for y1, y2 in [(6.7, 6.3), (4.2, 3.8)]:
+        layer_names = list(layers.keys())
+        ys = [8.5, 6.5, 4.5, 2.5]
+        for (name, y) in zip(layer_names, ys):
+            color = layer_colors[name]
+            ax.add_patch(FancyBboxPatch((0.5, y - 0.75), 9, 1.5,
+                         boxstyle="round,pad=0.15",
+                         facecolor=color, edgecolor="#555", lw=1.5))
+            ax.text(2.0, y, name, ha="center", va="center",
+                    fontsize=10, fontweight="bold", color="#222")
+            components = ", ".join(layers[name])
+            ax.text(6.0, y, components, ha="center", va="center",
+                    fontsize=9, color="#444",
+                    bbox=dict(boxstyle="round,pad=0.3", fc="white", ec="#aaa", lw=0.8))
+
+        for y1, y2 in zip([7.75, 5.75, 3.75], [7.25, 5.25, 3.25]):
             ax.annotate("", xy=(5, y2), xytext=(5, y1),
                         arrowprops=dict(arrowstyle="<->", color="#555", lw=1.5))
-        ax.text(5, 9.4, f"System Architecture — {job.get('title','')[:50]}",
-                ha="center", fontsize=12, fontweight="bold")
-    return _make_diagram(draw, figsize=(10, 7))
+
+        ax.text(5, 9.6, f"System Architecture — {title[:45]}",
+                ha="center", fontsize=11, fontweight="bold")
+
+    return _make_diagram(draw, figsize=(11, 8))
 
 
 def _diagram_usecase(job) -> io.BytesIO:
-    import matplotlib.patches as mp
-    from matplotlib.patches import Ellipse
+    from matplotlib.patches import Ellipse, FancyBboxPatch
+    import matplotlib.pyplot as plt
+
+    modules = _parse_modules(job)
+    title   = job.get("title", "System")
+
+    # Classify modules: admin vs user
+    admin_kw = {"admin", "manage", "delete", "approve", "configure", "setting",
+                "dashboard", "monitor", "report", "user management"}
+    user_ucs  = []
+    admin_ucs = []
+    for m in modules:
+        if any(kw in m.lower() for kw in admin_kw):
+            admin_ucs.append(m)
+        else:
+            user_ucs.append(m)
+    if len(user_ucs) < 3:
+        user_ucs  = modules[:6]
+        admin_ucs = modules[6:]
+
+    user_ucs  = user_ucs[:6]
+    admin_ucs = admin_ucs[:4]
+    all_ucs   = user_ucs + admin_ucs
 
     def draw(ax):
-        # Actor
-        ax.add_patch(plt.Circle((1.2, 5), 0.4, color="#6C63FF", zorder=3))
-        ax.plot([1.2, 1.2], [4.6, 3.5], color="#333", lw=2)
-        ax.plot([0.5, 1.9], [4.0, 4.0], color="#333", lw=2)
-        ax.plot([1.2, 0.6], [3.5, 2.8], color="#333", lw=2)
-        ax.plot([1.2, 1.8], [3.5, 2.8], color="#333", lw=2)
-        ax.text(1.2, 2.3, "User", ha="center", fontsize=9, fontweight="bold")
+        n  = len(all_ucs)
+        y0 = 9.2
+        gap = 8.4 / max(n - 1, 1)
+        ys = [y0 - i * gap for i in range(n)]
 
-        use_cases = [
-            "Register / Login", "Submit Project Details",
-            "Generate Report",  "View Report Status",
-            "Download Report",  "Receive Email Notification",
-        ]
-        ys = [8.5, 7.0, 5.5, 4.0, 2.5, 1.0]
-        for uc, y in zip(use_cases, ys):
-            el = Ellipse((6.5, y), width=5.5, height=0.9,
-                         facecolor="#DBEAFE", edgecolor="#2563EB", lw=1.2)
-            ax.add_patch(el)
-            ax.text(6.5, y, uc, ha="center", va="center", fontsize=9)
-            ax.annotate("", xy=(3.8, y), xytext=(1.8, 5),
-                        arrowprops=dict(arrowstyle="-", color="#555", lw=1))
+        y_min, y_max = min(ys) - 0.6, max(ys) + 0.6
 
-        ax.add_patch(mp.FancyBboxPatch((3.5, 0.3), 6.5, 9.2,
+        # System boundary
+        ax.add_patch(FancyBboxPatch((2.8, y_min), 6.8, y_max - y_min,
                      boxstyle="round,pad=0.1", fill=False,
-                     edgecolor="#999", lw=1.5, linestyle="--"))
-        ax.text(6.5, 9.8, "System Boundary", ha="center",
-                fontsize=9, color="#666")
-        ax.text(5, 10.5, "Use Case Diagram", ha="center",
-                fontsize=12, fontweight="bold")
-    return _make_diagram(draw, figsize=(10, 8))
+                     edgecolor="#888", lw=1.5, linestyle="--"))
+        ax.text(6.2, y_max + 0.3, f"«system»  {title[:30]}",
+                ha="center", fontsize=8.5, color="#555", style="italic")
+
+        # Use cases
+        for i, (uc, y) in enumerate(zip(all_ucs, ys)):
+            is_admin = i >= len(user_ucs)
+            fc = "#FEF9C3" if is_admin else "#DBEAFE"
+            ec = "#CA8A04" if is_admin else "#2563EB"
+            el = Ellipse((6.2, y), width=6.0, height=0.72,
+                         facecolor=fc, edgecolor=ec, lw=1.2)
+            ax.add_patch(el)
+            ax.text(6.2, y, uc[:34], ha="center", va="center", fontsize=8.5)
+
+        # User actor (left)
+        _draw_actor(ax, 1.1, 5.5, "User", color="#6C63FF")
+        for y in ys[:len(user_ucs)]:
+            ax.annotate("", xy=(2.8, y), xytext=(1.4, 5.5),
+                        arrowprops=dict(arrowstyle="-", color="#555", lw=0.9))
+
+        # Admin actor (right) if admin use cases exist
+        if admin_ucs:
+            _draw_actor(ax, 9.1, 5.5, "Admin", color="#F59E0B")
+            for y in ys[len(user_ucs):]:
+                ax.annotate("", xy=(9.2, y), xytext=(8.8 + (10 - 9.2) * 0.1, 5.5),
+                            arrowprops=dict(arrowstyle="-", color="#888", lw=0.9))
+
+        ax.text(5, 10.3, f"Use Case Diagram — {title[:40]}",
+                ha="center", fontsize=11, fontweight="bold")
+
+    return _make_diagram(draw, figsize=(11, 10))
+
+
+def _diagram_flowchart(job) -> io.BytesIO:
+    from matplotlib.patches import FancyBboxPatch
+    import matplotlib.pyplot as plt
+
+    modules = _parse_modules(job)
+    title   = job.get("title", "System")
+
+    # Build flow steps: Start → Login → [core modules] → End
+    steps = []
+    steps.append(("Start", "#6C63FF", "white"))
+    steps.append(("User Login / Authentication", "#DBEAFE", "#111"))
+    for m in modules[:5]:
+        steps.append((m, "#DCFCE7", "#111"))
+    steps.append(("Save / Update Records", "#FEF9C3", "#111"))
+    steps.append(("Generate Report / Output", "#DBEAFE", "#111"))
+    steps.append(("End", "#6C63FF", "white"))
+
+    def draw(ax):
+        n    = len(steps)
+        y0   = 9.5
+        gap  = 9.0 / max(n - 1, 1)
+        ys   = [y0 - i * gap for i in range(n)]
+        x    = 5.0
+        w, h = 5.5, 0.65
+
+        for (label, fc, tc), y in zip(steps, ys):
+            ax.add_patch(FancyBboxPatch((x - w/2, y - h/2), w, h,
+                         boxstyle="round,pad=0.12",
+                         facecolor=fc, edgecolor="#555", lw=1.2))
+            ax.text(x, y, label[:40], ha="center", va="center",
+                    fontsize=8.5, fontweight="bold", color=tc)
+
+        for i in range(len(steps) - 1):
+            y1 = ys[i]   - h/2
+            y2 = ys[i+1] + h/2
+            ax.annotate("", xy=(x, y2), xytext=(x, y1),
+                        arrowprops=dict(arrowstyle="->", color="#555", lw=1.4))
+
+        # Validation error branch from step 1 (login)
+        y_val = ys[1]
+        ax.annotate("", xy=(8.8, y_val), xytext=(x + w/2, y_val),
+                    arrowprops=dict(arrowstyle="->", color="#DC2626", lw=1.2))
+        ax.text(9.0, y_val + 0.25, "Error /\nInvalid",
+                ha="center", fontsize=7.5, color="#DC2626")
+
+        ax.text(x, 10.2, f"System Flow Diagram — {title[:40]}",
+                ha="center", fontsize=11, fontweight="bold")
+
+    return _make_diagram(draw, figsize=(9, 12))
 
 
 def _diagram_dfd(job) -> io.BytesIO:
     from matplotlib.patches import FancyBboxPatch, Circle
+    import matplotlib.pyplot as plt
+
+    modules = _parse_modules(job)
+    title   = job.get("title", "System")
+
+    # Pick up to 3 internal processes from modules
+    processes = [m[:22] for m in modules[:3]]
+    if not processes:
+        processes = ["Process Data", "Store Records", "Generate Output"]
 
     def draw(ax):
-        # External entity
-        ax.add_patch(FancyBboxPatch((0.2, 4.2), 1.8, 1.2,
-                     boxstyle="square,pad=0.1",
-                     facecolor="#FEF9C3", edgecolor="#555", lw=1.5))
-        ax.text(1.1, 4.8, "User", ha="center", va="center",
-                fontsize=10, fontweight="bold")
+        # External entities
+        for (label, x, y) in [("User", 0.5, 7.5), ("Admin", 0.5, 2.5)]:
+            ax.add_patch(FancyBboxPatch((x, y - 0.4), 1.6, 0.8,
+                         boxstyle="square,pad=0.1",
+                         facecolor="#FEF9C3", edgecolor="#555", lw=1.5))
+            ax.text(x + 0.8, y, label, ha="center", va="center",
+                    fontsize=9, fontweight="bold")
 
-        # Central process
-        ax.add_patch(Circle((5, 5), 1.5, facecolor="#DCFCE7",
+        # Central system circle
+        ax.add_patch(Circle((5, 5), 1.6, facecolor="#DCFCE7",
                             edgecolor="#16A34A", lw=2))
-        ax.text(5, 5.2, "Report", ha="center", fontsize=9, fontweight="bold")
-        ax.text(5, 4.8, "System", ha="center", fontsize=9, fontweight="bold")
+        name_parts = (title[:12] + "\nSystem").split("\n")
+        ax.text(5, 5.2, name_parts[0], ha="center", fontsize=8.5, fontweight="bold")
+        ax.text(5, 4.8, name_parts[1] if len(name_parts) > 1 else "", ha="center", fontsize=8.5)
 
-        # Data stores
-        stores = [("Firestore DB", 8.5, 6.5), ("Cloud Storage", 8.5, 3.5)]
-        for label, x, y in stores:
-            ax.add_patch(FancyBboxPatch((x - 1.3, y - 0.4), 2.6, 0.8,
-                         boxstyle="round,pad=0.1",
+        # Internal process bubbles
+        proc_xs = [4.0, 5.0, 6.0]
+        proc_ys = [7.5, 8.5, 7.5] if len(processes) > 2 else [4.5, 5.5]
+        for i, (proc, px, py) in enumerate(zip(processes,
+                                                [3.8, 5, 6.2],
+                                                [8.2, 8.8, 8.2])):
+            ax.add_patch(Circle((px, py), 0.75,
                          facecolor="#DBEAFE", edgecolor="#2563EB", lw=1.2))
-            ax.text(x, y, label, ha="center", va="center", fontsize=9)
+            ax.text(px, py, proc[:14], ha="center", va="center", fontsize=7.5,
+                    wrap=True)
+            ax.annotate("", xy=(px, py - 0.75), xytext=(5, 6.6),
+                        arrowprops=dict(arrowstyle="<->", color="#333", lw=1.2))
 
-        arrows = [
-            ((2.1, 4.9), (3.5, 5.1), "Project Data"),
-            ((6.5, 5.3), (7.2, 6.5), "Save Job"),
-            ((6.5, 4.7), (7.2, 3.7), "Upload ZIP"),
-            ((3.5, 4.9), (2.1, 4.7), "Status / URL"),
-        ]
-        for (x1, y1), (x2, y2), label in arrows:
-            ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
-                        arrowprops=dict(arrowstyle="->", color="#333", lw=1.5))
-            ax.text((x1+x2)/2, (y1+y2)/2 + 0.2, label,
-                    ha="center", fontsize=8, color="#555")
+        # Data stores (right side)
+        stores = [("Database", 8.8, 7.0), ("File Storage", 8.8, 3.5)]
+        for label, sx, sy in stores:
+            ax.add_patch(FancyBboxPatch((sx - 1.0, sy - 0.35), 2.0, 0.7,
+                         boxstyle="round,pad=0.08",
+                         facecolor="#EDE9FE", edgecolor="#7C3AED", lw=1.2))
+            ax.text(sx, sy, label, ha="center", va="center", fontsize=8.5)
+            ax.annotate("", xy=(sx - 1.0, sy), xytext=(6.6, 5.2),
+                        arrowprops=dict(arrowstyle="<->", color="#7C3AED", lw=1.1))
 
-        ax.text(5, 9.5, "Data Flow Diagram (Level 0)", ha="center",
-                fontsize=12, fontweight="bold")
-    return _make_diagram(draw, figsize=(10, 7))
+        # Arrows from external entities to system
+        for (ex, ey), label in [((2.1, 7.4), "Input Data"), ((2.1, 2.6), "Admin Request")]:
+            ax.annotate("", xy=(3.5, 5.2), xytext=(ex, ey),
+                        arrowprops=dict(arrowstyle="->", color="#333", lw=1.4))
+            ax.text((2.1 + 3.5)/2 - 0.2, (ey + 5.2)/2, label,
+                    ha="center", fontsize=7.5, color="#555")
+        # Response arrow back
+        ax.annotate("", xy=(2.1, 7.0), xytext=(3.5, 4.8),
+                    arrowprops=dict(arrowstyle="->", color="#555", lw=1.2))
+        ax.text(2.7, 5.8, "Output /\nStatus", ha="center", fontsize=7.5, color="#555")
+
+        ax.text(5, 9.7, f"Data Flow Diagram (L0) — {title[:35]}",
+                ha="center", fontsize=11, fontweight="bold")
+
+    return _make_diagram(draw, figsize=(11, 9))
 
 
 def _diagram_er(job) -> io.BytesIO:
     from matplotlib.patches import FancyBboxPatch
+    import matplotlib.pyplot as plt
+
+    entities = _extract_entities(job)
+    title    = job.get("title", "System")
+    n        = len(entities)
 
     def draw(ax):
-        entities = {
-            "Users":   (1.5, 7, ["uid (PK)", "email", "name", "created_at"]),
-            "Jobs":    (5.0, 7, ["job_id (PK)", "uid (FK)", "title", "status", "created_at"]),
-            "Reports": (8.5, 7, ["report_id (PK)", "job_id (FK)", "download_url", "expires_at"]),
-        }
-        box_h = 0.45
-        for name, (x, y, fields) in entities.items():
-            h = (len(fields) + 1) * box_h
-            ax.add_patch(FancyBboxPatch((x - 1.2, y - h), 2.4, h,
-                         boxstyle="round,pad=0.05",
-                         facecolor="#DBEAFE", edgecolor="#2563EB", lw=1.5))
-            ax.add_patch(FancyBboxPatch((x - 1.2, y - box_h), 2.4, box_h,
-                         facecolor="#2563EB", edgecolor="#2563EB", lw=0))
-            ax.text(x, y - box_h/2, name, ha="center", va="center",
+        # Position entities: up to 4 in a row
+        positions = [(2.0, 7.0), (6.5, 7.0), (2.0, 3.0), (6.5, 3.0)][:n]
+        box_w, row_h = 2.6, 0.42
+
+        placed = {}
+        for (ename, fields), (cx, cy) in zip(entities, positions):
+            h = (len(fields) + 1) * row_h
+            # Header bar
+            ax.add_patch(FancyBboxPatch((cx - box_w/2, cy - row_h), box_w, row_h,
+                         facecolor="#2563EB", edgecolor="#2563EB",
+                         boxstyle="round,pad=0.03", lw=0))
+            ax.text(cx, cy - row_h/2, ename, ha="center", va="center",
                     fontsize=10, fontweight="bold", color="white")
+            # Fields
+            ax.add_patch(FancyBboxPatch((cx - box_w/2, cy - h), box_w, h - row_h,
+                         facecolor="#DBEAFE", edgecolor="#2563EB",
+                         boxstyle="round,pad=0.03", lw=1.2))
             for i, field in enumerate(fields):
-                ax.text(x, y - box_h*(i+1.5), field,
-                        ha="center", va="center", fontsize=8, color="#111")
+                is_pk = "(PK)" in field
+                is_fk = "(FK)" in field
+                fc = "#1D4ED8" if is_pk else ("#7C3AED" if is_fk else "#111")
+                ax.text(cx, cy - row_h * (i + 1.5), ("🔑 " if is_pk else "  ") + field,
+                        ha="center", va="center", fontsize=7.5, color=fc)
+            placed[ename] = (cx, cy - row_h)
 
-        # Relationships
-        ax.annotate("", xy=(3.8, 5.8), xytext=(2.7, 5.8),
-                    arrowprops=dict(arrowstyle="-", color="#333", lw=1.5))
-        ax.text(3.25, 6.0, "1..N", ha="center", fontsize=8)
-        ax.annotate("", xy=(7.3, 5.8), xytext=(6.2, 5.8),
-                    arrowprops=dict(arrowstyle="-", color="#333", lw=1.5))
-        ax.text(6.75, 6.0, "1..1", ha="center", fontsize=8)
+        # Draw relationship lines between consecutive entities
+        entity_names = [e[0] for e in entities]
+        rel_labels   = ["1..N", "1..1", "1..N", "1..1"]
+        pairs = [(entity_names[i], entity_names[i+1], rel_labels[i])
+                 for i in range(len(entity_names) - 1)]
+        for e1, e2, lbl in pairs:
+            if e1 in placed and e2 in placed:
+                x1, y1 = placed[e1]
+                x2, y2 = placed[e2]
+                mx, my = (x1+x2)/2, (y1+y2)/2
+                ax.annotate("", xy=(x2, y2), xytext=(x1, y1),
+                            arrowprops=dict(arrowstyle="-", color="#333", lw=1.5))
+                ax.text(mx + 0.15, my + 0.2, lbl, ha="center", fontsize=8,
+                        color="#555",
+                        bbox=dict(fc="white", ec="none", pad=1))
 
-        ax.text(5, 9.5, "Entity Relationship Diagram", ha="center",
-                fontsize=12, fontweight="bold")
-    return _make_diagram(draw, figsize=(10, 6))
+        ax.text(4.5, 9.5, f"ER Diagram — {title[:40]}",
+                ha="center", fontsize=11, fontweight="bold")
+
+    return _make_diagram(draw, figsize=(11, 9))
 
 
-def _diagram_flowchart(job) -> io.BytesIO:
-    from matplotlib.patches import FancyBboxPatch, FancyArrow
+def _diagram_module_interaction(job) -> io.BytesIO:
+    """Component/module interaction diagram showing how project modules connect."""
+    from matplotlib.patches import FancyBboxPatch
+    import matplotlib.pyplot as plt
+
+    modules = _parse_modules(job)
+    title   = job.get("title", "System")
+
+    # Central hub + surrounding modules
+    hub     = title[:18]
+    spokes  = modules[:6]
+    n       = len(spokes)
 
     def draw(ax):
-        steps = [
-            (5, 9.0, "Start", "#6C63FF", "white", "round"),
-            (5, 7.5, "User Submits Project Details", "#DBEAFE", "#111", "round"),
-            (5, 6.0, "Validate Input", "#FEF9C3", "#111", "round"),
-            (5, 4.5, "Generate Report via LLM", "#DCFCE7", "#111", "round"),
-            (5, 3.0, "Assemble .docx + ZIP", "#DBEAFE", "#111", "round"),
-            (5, 1.5, "Upload to Cloud Storage", "#DBEAFE", "#111", "round"),
-            (5, 0.2, "Notify User", "#6C63FF", "white", "round"),
-        ]
-        for x, y, label, fc, tc, _ in steps:
-            ax.add_patch(FancyBboxPatch((x-2.5, y-0.4), 5, 0.8,
+        import math
+        cx, cy, r = 5.0, 5.0, 3.2
+
+        # Central box
+        ax.add_patch(FancyBboxPatch((cx - 1.4, cy - 0.5), 2.8, 1.0,
+                     boxstyle="round,pad=0.15",
+                     facecolor="#6C63FF", edgecolor="#4338CA", lw=2))
+        ax.text(cx, cy, hub, ha="center", va="center",
+                fontsize=10, fontweight="bold", color="white")
+
+        colors = ["#DBEAFE", "#DCFCE7", "#FEF9C3", "#FCE7F3", "#E0F2FE", "#F3F4F6"]
+        for i, mod in enumerate(spokes):
+            angle  = 2 * math.pi * i / n - math.pi / 2
+            mx     = cx + r * math.cos(angle)
+            my     = cy + r * math.sin(angle)
+            ax.add_patch(FancyBboxPatch((mx - 1.3, my - 0.38), 2.6, 0.76,
                          boxstyle="round,pad=0.1",
-                         facecolor=fc, edgecolor="#555", lw=1.2))
-            ax.text(x, y, label, ha="center", va="center",
-                    fontsize=9, fontweight="bold", color=tc)
+                         facecolor=colors[i % len(colors)],
+                         edgecolor="#555", lw=1.2))
+            ax.text(mx, my, mod[:24], ha="center", va="center", fontsize=8)
+            # Arrow from hub to module
+            dx = mx - cx; dy = my - cy
+            dist = math.hypot(dx, dy)
+            ax.annotate("", xy=(cx + dx/dist*1.5, cy + dy/dist*0.55),
+                        xytext=(cx + dx/dist*(r - 1.4), cy + dy/dist*(r - 0.42)),
+                        arrowprops=dict(arrowstyle="<->", color="#555", lw=1.2))
 
-        for i in range(len(steps)-1):
-            y1 = steps[i][1] - 0.4
-            y2 = steps[i+1][1] + 0.4
-            ax.annotate("", xy=(5, y2), xytext=(5, y1),
-                        arrowprops=dict(arrowstyle="->", color="#555", lw=1.5))
+        ax.text(cx, 9.6, f"Module Interaction — {title[:40]}",
+                ha="center", fontsize=11, fontweight="bold")
 
-        # No branch from Validate
-        ax.annotate("", xy=(8.5, 6.0), xytext=(7.5, 6.0),
-                    arrowprops=dict(arrowstyle="->", color="#DC2626", lw=1.2))
-        ax.text(8.5, 6.0, "Invalid\n(show error)", ha="center",
-                fontsize=8, color="#DC2626")
-
-        ax.text(5, 10.2, "System Flow Diagram", ha="center",
-                fontsize=12, fontweight="bold")
-    return _make_diagram(draw, figsize=(8, 10))
+    return _make_diagram(draw, figsize=(11, 9))
 
 
 # ── Node 5: Assembler ─────────────────────────────────────────────────────────
@@ -1205,7 +1487,7 @@ def assembler_node(state: ReportState) -> ReportState:
     _shade_para(bar, doc_color_hex)
     bar.paragraph_format.space_before = Pt(0)
     bar.paragraph_format.space_after  = Pt(0)
-    run = bar.add_run("  " + "ProjectDocs AI  ·  Academic Project Report")
+    run = bar.add_run(f"  {job.get('client', 'Academic Project Report')}  ·  Academic Project Report")
     _set_font(run, "Calibri", 10, color=RGBColor(0xFF, 0xFF, 0xFF))
 
     doc.add_paragraph("")
@@ -1244,6 +1526,8 @@ def assembler_node(state: ReportState) -> ReportState:
     # Info card — 2-column borderless table
     info_rows = [
         ("Submitted by",    job.get("student_name", "")),
+        ("Guide",           job.get("guider_name", "")),
+        ("Semester / Class",job.get("semester", "")),
         ("Batch",           str(job.get("batch_year", ""))),
         ("Institution",     job.get("client", "")),
         ("Branch / Domain", job.get("domain", "CSE / IT")),
@@ -1303,7 +1587,7 @@ def assembler_node(state: ReportState) -> ReportState:
     # Bottom bar
     bot = doc.add_paragraph()
     _shade_para(bot, doc_color_hex)
-    bot_run = bot.add_run(f"  {job.get('domain','CSE / IT')}  ·  {job['batch_year']}  ·  Generated by ProjectDocs AI")
+    bot_run = bot.add_run(f"  {job.get('domain','CSE / IT')}  ·  {job['batch_year']}  ·  {job.get('client','')}")
     _set_font(bot_run, "Calibri", 9, color=RGBColor(0xFF, 0xFF, 0xFF))
 
     doc.add_page_break()
@@ -1311,10 +1595,37 @@ def assembler_node(state: ReportState) -> ReportState:
     # ── Table of Contents ──────────────────────────────────────────
     toc_h = doc.add_heading("Table of Contents", 1)
     _shade_para(toc_h, doc_color_hex)
-    note = add_body(
-        "Right-click this page in Microsoft Word and select "
-        "'Update Field' to auto-generate the Table of Contents."
-    )
+    for run in toc_h.runs:
+        _set_font(run, "Calibri", 20, bold=True, color=RGBColor(0xFF, 0xFF, 0xFF))
+
+    toc_para = doc.add_paragraph()
+    toc_run_begin = toc_para.add_run()
+    fld_begin = OxmlElement('w:fldChar')
+    fld_begin.set(qn('w:fldCharType'), 'begin')
+    fld_begin.set(qn('w:dirty'), 'true')
+    toc_run_begin._r.append(fld_begin)
+
+    toc_run_instr = toc_para.add_run()
+    instr_text = OxmlElement('w:instrText')
+    instr_text.set(qn('xml:space'), 'preserve')
+    instr_text.text = ' TOC \\o "1-3" \\h \\z \\u '
+    toc_run_instr._r.append(instr_text)
+
+    toc_run_sep = toc_para.add_run()
+    fld_sep = OxmlElement('w:fldChar')
+    fld_sep.set(qn('w:fldCharType'), 'separate')
+    toc_run_sep._r.append(fld_sep)
+
+    toc_run_placeholder = toc_para.add_run()
+    toc_run_placeholder.text = '[Update this field in Word: right-click → Update Field]'
+    toc_run_placeholder.font.size = Pt(10)
+    toc_run_placeholder.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+
+    toc_run_end = toc_para.add_run()
+    fld_end = OxmlElement('w:fldChar')
+    fld_end.set(qn('w:fldCharType'), 'end')
+    toc_run_end._r.append(fld_end)
+
     doc.add_page_break()
 
     chapter_titles = get_branch_config(
@@ -1322,11 +1633,12 @@ def assembler_node(state: ReportState) -> ReportState:
     )["titles"]
 
     _CHAPTER_DIAGRAMS = {
-        "requirements" : [("Use Case Diagram",        _diagram_usecase)],
-        "system_design": [("System Architecture",     _diagram_architecture),
-                          ("System Flow Diagram",     _diagram_flowchart),
-                          ("Data Flow Diagram (L0)",  _diagram_dfd)],
-        "database"     : [("Entity Relationship Diagram", _diagram_er)],
+        "requirements" : [("Use Case Diagram",           _diagram_usecase)],
+        "system_design": [("System Architecture Diagram",_diagram_architecture),
+                          ("System Flow Diagram",        _diagram_flowchart),
+                          ("Data Flow Diagram (L0)",     _diagram_dfd),
+                          ("Module Interaction Diagram", _diagram_module_interaction)],
+        "database"     : [("Entity Relationship Diagram",_diagram_er)],
     }
 
     for key, title in chapter_titles.items():
@@ -1336,6 +1648,7 @@ def assembler_node(state: ReportState) -> ReportState:
         for run in h1.runs:
             _set_font(run, "Calibri", 20, bold=True,
                       color=RGBColor(0xFF, 0xFF, 0xFF))
+        doc.add_page_break()
 
         content = chapters.get(key, "Content not available.")
 

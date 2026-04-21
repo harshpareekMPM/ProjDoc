@@ -170,6 +170,11 @@ def process_report_task(req: https_fn.Request) -> https_fn.Response:
     job = doc.to_dict()
     job["job_id"] = jid
 
+    # Idempotency guard — Cloud Tasks may retry; skip jobs already finished
+    if job.get("status") in ("done", "expired"):
+        print(f"[WORKER] Job {jid} already completed (status={job.get('status')}), skipping retry")
+        return https_fn.Response("Already processed", status=200)
+
     db.collection("jobs").document(jid).update({"status": "processing"})
     try:
         from report_agent import run_report_agent

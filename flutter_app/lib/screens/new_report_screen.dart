@@ -18,6 +18,8 @@ class _NewReportScreenState extends State<NewReportScreen> {
   final _client            = TextEditingController();
   final _studentName       = TextEditingController();
   final _batchYear         = TextEditingController();
+  final _semester          = TextEditingController();
+  final _guiderName        = TextEditingController();
   final _modules           = TextEditingController();
   final _notificationEmail = TextEditingController();
 
@@ -78,8 +80,8 @@ class _NewReportScreenState extends State<NewReportScreen> {
   @override
   void dispose() {
     _title.dispose(); _description.dispose(); _client.dispose();
-    _studentName.dispose(); _batchYear.dispose(); _modules.dispose();
-    _notificationEmail.dispose();
+    _studentName.dispose(); _batchYear.dispose(); _semester.dispose();
+    _guiderName.dispose(); _modules.dispose(); _notificationEmail.dispose();
     super.dispose();
   }
 
@@ -97,6 +99,8 @@ class _NewReportScreenState extends State<NewReportScreen> {
         'client'             : _client.text.trim(),
         'student_name'       : _studentName.text.trim(),
         'batch_year'         : _batchYear.text.trim(),
+        'semester'           : _semester.text.trim(),
+        'guider_name'        : _guiderName.text.trim(),
         'modules'            : _modules.text.trim(),
         'fcm_token'          : fcmToken,
         'notification_email' : _notificationEmail.text.trim(),
@@ -119,6 +123,8 @@ class _NewReportScreenState extends State<NewReportScreen> {
         _client.clear();
         _studentName.clear();
         _batchYear.clear();
+        _semester.clear();
+        _guiderName.clear();
         _modules.clear();
         _notificationEmail.clear();
       }
@@ -184,6 +190,8 @@ class _NewReportScreenState extends State<NewReportScreen> {
               _ConfirmRow(label: 'Modules',     value: _modules.text.trim()),
               _ConfirmRow(label: 'Student',     value: _studentName.text.trim()),
               _ConfirmRow(label: 'Batch',       value: _batchYear.text.trim()),
+              _ConfirmRow(label: 'Semester',    value: _semester.text.trim()),
+              _ConfirmRow(label: 'Guide',       value: _guiderName.text.trim()),
               _ConfirmRow(label: 'College',     value: _client.text.trim()),
               if (_notificationEmail.text.trim().isNotEmpty)
                 _ConfirmRow(label: 'Email', value: _notificationEmail.text.trim()),
@@ -521,6 +529,33 @@ class _NewReportScreenState extends State<NewReportScreen> {
                     hintText: '2024-25',
                     prefixIcon: Icon(Icons.calendar_today_outlined),
                   ),
+                  validator: (v) => v!.trim().isEmpty ? 'Required' : null,
+                ),
+              ),
+            ]),
+            const SizedBox(height: 12),
+            Row(children: [
+              Expanded(
+                child: TextFormField(
+                  controller: _semester,
+                  decoration: const InputDecoration(
+                    labelText: 'Semester / Class',
+                    hintText: '6th Sem / TE',
+                    prefixIcon: Icon(Icons.class_outlined),
+                  ),
+                  validator: (v) => v!.trim().isEmpty ? 'Required' : null,
+                ),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: TextFormField(
+                  controller: _guiderName,
+                  decoration: const InputDecoration(
+                    labelText: 'Guide Name',
+                    hintText: 'Prof. Sharma',
+                    prefixIcon: Icon(Icons.supervisor_account_outlined),
+                  ),
+                  textCapitalization: TextCapitalization.words,
                   validator: (v) => v!.trim().isEmpty ? 'Required' : null,
                 ),
               ),
