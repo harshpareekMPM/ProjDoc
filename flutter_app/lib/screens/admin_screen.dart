@@ -1,6 +1,8 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:http/http.dart' as http;
 import 'admin_login_screen.dart';
 
@@ -26,8 +28,11 @@ class _AdminScreenState extends State<AdminScreen> {
   bool   _creditLoading  = false;
   String _creditMessage  = '';
 
+  StreamSubscription<RemoteMessage>? _fcmSub;
+
   @override
   void dispose() {
+    _fcmSub?.cancel();
     _creditEmailCtrl.dispose();
     super.dispose();
   }
@@ -64,6 +69,27 @@ class _AdminScreenState extends State<AdminScreen> {
   void initState() {
     super.initState();
     _load();
+    _fcmSub = FirebaseMessaging.onMessage.listen((message) {
+      final title = message.notification?.title ?? '';
+      final body  = message.notification?.body ?? '';
+      if (!mounted || (title.isEmpty && body.isEmpty)) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (title.isNotEmpty)
+                Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+              if (body.isNotEmpty) Text(body),
+            ],
+          ),
+          duration: const Duration(seconds: 6),
+          behavior: SnackBarBehavior.floating,
+          action: SnackBarAction(label: 'Refresh', onPressed: _load),
+        ),
+      );
+    });
   }
 
   Future<void> _load() async {
@@ -141,9 +167,9 @@ class _AdminScreenState extends State<AdminScreen> {
           IconButton(
             icon: const Icon(Icons.logout_rounded, color: Colors.red),
             onPressed: () async {
+              final nav = Navigator.of(context);
               await FirebaseAuth.instance.signOut();
-              if (!mounted) return;
-              Navigator.of(context).pushAndRemoveUntil(
+              nav.pushAndRemoveUntil(
                 MaterialPageRoute(builder: (_) => const AdminLoginScreen()),
                 (route) => false,
               );

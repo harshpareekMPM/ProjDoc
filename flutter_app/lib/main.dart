@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'firebase_options.dart';
 
 import 'screens/new_report_screen.dart';
@@ -106,6 +107,54 @@ class _MainScaffoldState extends State<MainScaffold> {
   int _currentIndex = 0;
 
   static const _screens = [NewReportScreen(), HistoryScreen()];
+
+  @override
+  void initState() {
+    super.initState();
+    _saveFcmToken();
+    FirebaseMessaging.onMessage.listen(_handleForegroundMessage);
+  }
+
+  Future<void> _saveFcmToken() async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    try {
+      final token = await FirebaseMessaging.instance.getToken();
+      if (token != null) {
+        await FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .set({'fcm_token': token}, SetOptions(merge: true));
+      }
+      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
+        FirebaseFirestore.instance
+            .collection('users')
+            .doc(uid)
+            .set({'fcm_token': newToken}, SetOptions(merge: true));
+      });
+    } catch (_) {}
+  }
+
+  void _handleForegroundMessage(RemoteMessage message) {
+    final title = message.notification?.title ?? '';
+    final body  = message.notification?.body ?? '';
+    if (!mounted || (title.isEmpty && body.isEmpty)) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (title.isNotEmpty)
+              Text(title, style: const TextStyle(fontWeight: FontWeight.bold)),
+            if (body.isNotEmpty) Text(body),
+          ],
+        ),
+        duration: const Duration(seconds: 5),
+        behavior: SnackBarBehavior.floating,
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {

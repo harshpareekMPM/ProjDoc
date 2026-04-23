@@ -1,7 +1,7 @@
 import asyncio
 import json
 import os
-from firebase_admin import initialize_app, firestore, auth
+from firebase_admin import initialize_app, firestore, auth, messaging
 from firebase_functions import firestore_fn, https_fn, scheduler_fn
 from google.cloud import firestore as gcf
 
@@ -127,8 +127,6 @@ def generate_report(event: firestore_fn.Event) -> None:
                     "service_account_email": f"{_GCP_PROJECT}@appspot.gserviceaccount.com"
                 },
             },
-            # Never retry — idempotency guard in the worker handles true retries
-            "retry_config": {"max_attempts": 1},
         }
         client.create_task(request={"parent": parent, "task": task})
     except Exception as e:
@@ -145,6 +143,18 @@ def generate_report(event: firestore_fn.Event) -> None:
 
     db.collection("jobs").document(jid).update({"status": "queued"})
     print(f"[QUEUE] Job {jid} enqueued to {_TASK_QUEUE}")
+
+    try:
+        messaging.send(messaging.Message(
+            topic="admin_alerts",
+            notification=messaging.Notification(
+                title="New Report Job Queued",
+                body=f"{job.get('student_name', 'A student')} — {job.get('title', 'Untitled')}",
+            ),
+            data={"type": "job_queued", "job_id": jid},
+        ))
+    except Exception as fcm_err:
+        print(f"[FCM] Admin alert failed for job {jid}: {fcm_err}")
 
 
 # ── Cloud Tasks worker — does the actual report generation ───────────────────
@@ -449,6 +459,22 @@ def admin_add_credit(req: https_fn.Request) -> https_fn.Response:
         {"generate_credits": gcf.Increment(1)}, merge=True
     )
     print(f"[ADMIN] Credit added to uid={uid} email={email} by admin={decoded.get('uid')}")
+
+    user_doc  = db.collection("users").document(uid).get()
+    fcm_token = (user_doc.to_dict() or {}).get("fcm_token")
+    if fcm_token:
+        try:
+            messaging.send(messaging.Message(
+                token=fcm_token,
+                notification=messaging.Notification(
+                    title="Credit Added!",
+                    body="You received 1 generate credit. Open the app to create your report.",
+                ),
+                data={"type": "credit_added"},
+            ))
+        except Exception as fcm_err:
+            print(f"[FCM] Credit notification failed for uid={uid}: {fcm_err}")
+
     return https_fn.Response(
         json.dumps({"success": True, "uid": uid, "email": email}),
         status=200, content_type="application/json", headers=_CORS_HEADERS,
