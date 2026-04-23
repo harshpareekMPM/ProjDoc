@@ -12,11 +12,16 @@ Future<void> main() async {
     await Firebase.initializeApp(options: DefaultFirebaseOptions.currentPlatform);
   } catch (_) {}
   FirebaseMessaging.onBackgroundMessage(_firebaseMessagingBackgroundHandler);
+  runApp(const AdminApp());
+  // FCM setup after runApp so it never blocks the UI from rendering
+  _initFcm();
+}
+
+Future<void> _initFcm() async {
   try {
     await FirebaseMessaging.instance.requestPermission();
     await FirebaseMessaging.instance.subscribeToTopic('admin_alerts');
   } catch (_) {}
-  runApp(const AdminApp());
 }
 
 class AdminApp extends StatelessWidget {
