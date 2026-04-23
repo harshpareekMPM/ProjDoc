@@ -189,6 +189,17 @@ def process_report_task(req: https_fn.Request) -> https_fn.Response:
         print(f"[WORKER] Job {jid} is terminal (status={job.get('status')}), skipping — no tokens burned")
         return https_fn.Response("Already terminal", status=200)
 
+    # Break retry loop: if status is already "processing" and this is a retry,
+    # the previous attempt timed out — mark failed so Cloud Tasks stops retrying.
+    retry_count = int(req.headers.get("X-CloudTasks-TaskRetryCount", "0"))
+    if job.get("status") == "processing" and retry_count > 0:
+        db.collection("jobs").document(jid).update({
+            "status": "failed",
+            "error" : f"timeout:worker_timed_out_on_retry_{retry_count}",
+        })
+        print(f"[WORKER] Job {jid} timed out on retry #{retry_count}, marking failed")
+        return https_fn.Response("Marked failed after timeout", status=200)
+
     db.collection("jobs").document(jid).update({"status": "processing"})
     try:
         from report_agent import run_report_agent
