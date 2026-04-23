@@ -118,21 +118,30 @@ class _MainScaffoldState extends State<MainScaffold> {
   Future<void> _saveFcmToken() async {
     final uid = FirebaseAuth.instance.currentUser?.uid;
     if (uid == null) return;
+
+    // onTokenRefresh fires when a new token is generated (including first-time
+    // registration). Register the listener before getToken() so we never miss it.
+    FirebaseMessaging.instance.onTokenRefresh
+        .listen((t) => _writeToken(uid, t));
+
     try {
       final token = await FirebaseMessaging.instance.getToken();
-      if (token != null) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .set({'fcm_token': token}, SetOptions(merge: true));
-      }
-      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) {
-        FirebaseFirestore.instance
-            .collection('users')
-            .doc(uid)
-            .set({'fcm_token': newToken}, SetOptions(merge: true));
-      });
-    } catch (_) {}
+      if (token != null) await _writeToken(uid, token);
+    } catch (e) {
+      debugPrint('[FCM] getToken failed: $e');
+    }
+  }
+
+  Future<void> _writeToken(String uid, String token) async {
+    try {
+      await FirebaseFirestore.instance
+          .collection('users')
+          .doc(uid)
+          .set({'fcm_token': token}, SetOptions(merge: true));
+      debugPrint('[FCM] Token saved for uid=$uid');
+    } catch (e) {
+      debugPrint('[FCM] Token write failed: $e');
+    }
   }
 
   void _handleForegroundMessage(RemoteMessage message) {
