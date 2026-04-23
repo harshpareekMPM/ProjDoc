@@ -693,7 +693,7 @@ class ReportState(TypedDict):
 
 # ── Node 1: Planner ───────────────────────────────────────────────────────────
 
-def planner_node(state: ReportState) -> ReportState:
+async def planner_node(state: ReportState) -> ReportState:
     job = state["job"]
     branch  = job.get("domain", "CSE / IT")
     context = f"""
@@ -706,7 +706,8 @@ Student             : {job['student_name']}
 Batch               : {job['batch_year']}
 Key Modules/Features: {job.get('modules', 'As appropriate')}
 """
-    r = _get_client().messages.create(
+    r = await asyncio.to_thread(
+        _get_client().messages.create,
         model      = "claude-haiku-4-5-20251001",
         max_tokens = 1024,
         messages   = [{
@@ -783,21 +784,22 @@ IMPORTANT:
 - No markdown formatting — plain text only
 - Meet the minimum word count requirement
 """
-        r = await asyncio.to_thread(
-            _get_client().messages.create,
-            model      = "claude-haiku-4-5-20251001",
-            max_tokens = 2500,
-            messages   = [{"role": "user", "content": prompt}]
-        )
-        return name, r.content[0].text
+        try:
+            r = await asyncio.to_thread(
+                _get_client().messages.create,
+                model      = "claude-haiku-4-5-20251001",
+                max_tokens = 2500,
+                messages   = [{"role": "user", "content": prompt}]
+            )
+            return name, r.content[0].text if r.content else ""
+        except Exception as e:
+            print(f"[AGENT] Chapter '{name}' failed: {e}")
+            return name, ""
 
     pending = [n for n in CHAPTER_NAMES if status.get(n) != "done"]
-    results = []
     for name in pending:
-        result = await gen_one(name)
-        results.append(result)
-    for name, content in results:
-        chapters[name] = content
+        _, content = await gen_one(name)
+        chapters[name] = content   # update immediately so next chapter has context
         status[name]   = "generated"
     return {**state, "chapters": chapters, "chapter_status": status}
 
@@ -827,7 +829,7 @@ def quality_node(state: ReportState) -> ReportState:
         has_placeholder = any(p in content.lower() for p in PLACEHOLDER_PHRASES)
         if word_count < min_words or has_placeholder:
             retries = retry_count.get(name, 0)
-            if retries < 2:
+            if retries < 1:
                 status[name]      = "retry"
                 quality[name]     = f"too_short:{word_count}/{min_words}"
                 retry_count[name] = retries + 1
@@ -883,19 +885,20 @@ Include examples, detailed descriptions, and thorough explanations.
 Previous attempt (expand significantly on this):
 {chapters.get(name, '')[:500]}...
 """
-        r = await asyncio.to_thread(
-            _get_client().messages.create,
-            model      = "claude-haiku-4-5-20251001",
-            max_tokens = 2500,
-            messages   = [{"role": "user", "content": prompt}]
-        )
-        return name, r.content[0].text
+        try:
+            r = await asyncio.to_thread(
+                _get_client().messages.create,
+                model      = "claude-haiku-4-5-20251001",
+                max_tokens = 2500,
+                messages   = [{"role": "user", "content": prompt}]
+            )
+            return name, r.content[0].text if r.content else ""
+        except Exception as e:
+            print(f"[AGENT] Retry '{name}' failed: {e}")
+            return name, chapters.get(name, "")  # keep previous attempt on failure
 
-    results = []
     for name in retry_names:
-        result = await retry_one(name)
-        results.append(result)
-    for name, content in results:
+        _, content = await retry_one(name)
         chapters[name] = content
         status[name]   = "generated"
     return {**state, "chapters": chapters, "chapter_status": status}
@@ -1858,21 +1861,21 @@ def delivery_node(state: ReportState) -> ReportState:
         zip_bytes = zip_buf.getvalue()
 
         # ── Upload ZIP to Firebase Storage ────────────────────────
+        import uuid, urllib.parse
         bucket     = storage.bucket()
         zip_name   = f"{job['title']}_Report.zip".replace("/", "-")
         blob       = bucket.blob(f"reports/{jid}/{zip_name}")
-        blob.upload_from_string(zip_bytes, content_type="application/zip")
+        blob.upload_from_string(zip_bytes, content_type="application/zip", timeout=120)
 
         # ── Generate Firebase Storage download URL ────────────────
-        import uuid
         download_token = str(uuid.uuid4())
         blob.metadata  = {"firebaseStorageDownloadTokens": download_token}
         blob.patch()
-        encoded_path = zip_name.replace("/", "%2F").replace(" ", "%20")
+        encoded_path = urllib.parse.quote(f"reports/{jid}/{zip_name}", safe="")
         bucket_name  = blob.bucket.name
         download_url = (
             f"https://firebasestorage.googleapis.com/v0/b/{bucket_name}"
-            f"/o/reports%2F{jid}%2F{encoded_path}?alt=media&token={download_token}"
+            f"/o/{encoded_path}?alt=media&token={download_token}"
         )
         expires_at = datetime.now(tz=timezone.utc) + timedelta(hours=24)
 
