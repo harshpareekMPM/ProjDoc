@@ -796,7 +796,6 @@ IMPORTANT:
     for name in pending:
         result = await gen_one(name)
         results.append(result)
-        await asyncio.sleep(20)
     for name, content in results:
         chapters[name] = content
         status[name]   = "generated"
@@ -896,7 +895,6 @@ Previous attempt (expand significantly on this):
     for name in retry_names:
         result = await retry_one(name)
         results.append(result)
-        await asyncio.sleep(20)
     for name, content in results:
         chapters[name] = content
         status[name]   = "generated"
